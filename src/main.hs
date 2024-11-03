@@ -4,8 +4,6 @@ import System.Console.ANSI
 import System.Random
 import Control.Monad
 import System.IO
-import Data.Array.Accelerate.LLVM.Native.Foreign (Async(put))
-
 import Utils(drawGame, initialGameState, gameOver, handleInput, GameState, player1, hp)
 
 
@@ -35,7 +33,7 @@ main = do
 
 showWellcomeMessage :: IO ()
 showWellcomeMessage = do
-    putStrLn "Bienvenido a CanoWars!"
+    putStrLn "===Bienvenido a CanoWars!==="
     putStrLn "'a' y 'd' <- para mover la catapulta."
     putStrLn "'w' y 's' <- para ajustar el ángulo de disparo."
     putStrLn "'espacio' <- para disparar."

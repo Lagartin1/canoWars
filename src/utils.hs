@@ -3,9 +3,6 @@ import System.Random
 import Control.Monad
 import System.IO
 import System.Console.ANSI
-import Data.List (intercalate)
-import Data.Array.Accelerate.LLVM.Native.Foreign (Async(put))
-
 -- Tipos de datos
 data Player = Player {
     hp :: Int,
