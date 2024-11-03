@@ -1,20 +1,46 @@
--- Main.hs
 module Main where
 
-import Utils (GameState, initializeGame, takeTurn, displayGameState, checkGameOver)
-import System.IO (hSetBuffering, stdout, BufferMode(NoBuffering))
+import System.Console.ANSI
+import System.Random
+import Control.Monad
+import System.IO
+import Data.Array.Accelerate.LLVM.Native.Foreign (Async(put))
+
+import Utils(drawGame, initialGameState, gameOver, handleInput, GameState, player1, hp)
+
+
+
+gameLoop :: GameState -> IO ()
+gameLoop game = do
+    drawGame game
+    if gameOver game
+        then do
+            putStrLn $ "¡" ++ winner ++ " ha ganado!"
+            return ()
+        else do
+            hSetBuffering stdin NoBuffering
+            c <- getChar
+            newGame <- handleInput c game
+            gameLoop newGame
+    where
+        winner = if hp (player1 game) <= 0 then "Jugador 2" else "Jugador 1"
 
 main :: IO ()
 main = do
-    hSetBuffering stdout NoBuffering -- Desactivar el buffering para experiencia en tiempo real
-    gameState <- initializeGame
-    gameLoop gameState
+    showWellcomeMessage
+    hSetEcho stdin False
+    clearScreen
+    gameLoop initialGameState
 
-gameLoop :: GameState -> IO ()
-gameLoop state = do
-    displayGameState state
-    if checkGameOver state
-        then putStrLn "¡Juego terminado!"
-        else do
-            newState <- takeTurn state
-            gameLoop newState
+
+showWellcomeMessage :: IO ()
+showWellcomeMessage = do
+    putStrLn "Bienvenido a CanoWars!"
+    putStrLn "'a' y 'd' <- para mover la catapulta."
+    putStrLn "'w' y 's' <- para ajustar el ángulo de disparo."
+    putStrLn "'espacio' <- para disparar."
+    putStrLn "'q' <- para salir del juego."
+    putStrLn "¡Que gane el mejor!"
+    putStrLn "presiona cualquier tecla para continuar"
+    _ <- getChar
+    return ()

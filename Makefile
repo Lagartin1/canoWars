@@ -17,7 +17,7 @@ GHC = ghc
 GHC_FLAGS = -o $(TARGET)
 
 # Regla principal de compilación
-all: $(TARGET)
+all: clean $(TARGET)
 
 # Compilación del ejecutable
 $(TARGET): $(SOURCES) | $(BIN_DIR)
@@ -29,4 +29,4 @@ $(BIN_DIR):
 
 # Limpiar archivos generados
 clean:
-	rm -f $(TARGET) $(SRC_DIR)/*.hi $(SRC_DIR
+	rm -f $(BIN_DIR)/* $(SRC_DIR)/*.hi $(SRC_DIR)/+*.o

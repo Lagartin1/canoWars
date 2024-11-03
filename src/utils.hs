@@ -1,110 +1,183 @@
--- Utils.hs
-module Utils (
-    GameState,
-    initializeGame,
-    takeTurn,
-    displayGameState,
-    checkGameOver
-) where
+module Utils where
+import System.Random
+import Control.Monad
+import System.IO
+import System.Console.ANSI
+import Data.List (intercalate)
+import Data.Array.Accelerate.LLVM.Native.Foreign (Async(put))
 
-import System.Random (randomRIO)
-import Control.Concurrent (threadDelay)
+-- Tipos de datos
+data Player = Player {
+    hp :: Int,
+    fuel :: Int,
+    position :: (Int, Int),  -- (x, y)
+    angle :: Int,            -- ángulo en grados
+    isPlayer1 :: Bool        -- True para P1, False para P2
+} deriving (Show)
 
 data GameState = GameState {
     player1 :: Player,
     player2 :: Player,
-    turn :: Int
+    currentTurn :: Bool,     -- True para P1, False para P2
+    gameOver :: Bool
+} deriving (Show)
+
+-- Constantes del juego
+screenWidth :: Int
+screenWidth = 80
+
+screenHeight :: Int
+screenHeight = 25
+
+wallPosition :: Int
+wallPosition = screenWidth `div` 2
+
+-- Inicialización del juego
+initialGameState :: GameState
+initialGameState = GameState {
+    player1 = Player {
+        hp = 30,
+        fuel = 100,
+        position = (10, screenHeight - 3),
+        angle = 45,
+        isPlayer1 = True
+    },
+    player2 = Player {
+        hp = 30,
+        fuel = 100,
+        position = (screenWidth - 10, screenHeight - 3),
+        angle = 135,
+        isPlayer1 = False
+    },
+    currentTurn = True,
+    gameOver = False
 }
 
-data Player = Player {
-    name :: String,
-    health :: Int,
-    fuel :: Int,
-    angle :: Int
-}
+-- Dibuja el escenario completo
+drawGame :: GameState -> IO ()
+drawGame game = do
+    clearScreen
+    setCursorPosition 0 0
+    let screen = replicate screenHeight (replicate screenWidth ' ')
+    let withWall = addWall screen
+    let withPlayers = addPlayers withWall game
+    let withInfo = addGameInfo withPlayers game
+    putStr $ unlines withInfo
+    where
+        addWall screen = 
+            let
+                topMargin = 10   -- Margen superior antes de que comience la pared
+                bottomMargin = 0-- Margen inferior después de que termine la pared
+                wallHeight = screenHeight - topMargin - bottomMargin -- Altura total de la pared
+            in
+                [ if i >= topMargin && i < topMargin + wallHeight
+                  then insertAt wallPosition '|' row
+                  else row
+                  | (i, row) <- zip [0..] screen]
+        insertAt n x xs = take n xs ++ [x] ++ drop (n + 1) xs
 
-initializeGame :: IO GameState
-initializeGame = do
-    let player1 = Player "Jugador 1" 30 100 45
-    let player2 = Player "Jugador 2" 30 100 45
-    return $ GameState player1 player2 1
+addGameInfo :: [String] -> GameState -> [String]
+addGameInfo screen game =
+    let p1Info = "P1: HP=" ++ show (hp $ player1 game) ++ " Fuel=" ++ show (fuel $ player1 game) ++ " Angle=" ++ show (angle $ player1 game)
+        p2Info = "P2: HP=" ++ show (hp $ player2 game) ++ " Fuel=" ++ show (fuel $ player2 game) ++ " Angle=" ++ show (angle $ player2 game)
+        turnInfo = "Turno: " ++ (if currentTurn game then "P1" else "P2")
+    in screen ++ [p1Info, p2Info, turnInfo]
 
-takeTurn :: GameState -> IO GameState
-takeTurn state = do
-    let currentPlayer = if turn state == 1 then player1 state else player2 state
-    putStrLn $ "Turno de " ++ name currentPlayer
-    newAngle <- promptAngle (angle currentPlayer)
-    simulateProjectile newAngle (turn state)  -- Simulación del movimiento del proyectil
-    dmg <- calculateDamage
-    let newFuel = fuel currentPlayer - 10
-    let updatedHealth = health currentPlayer - dmg
-    let newPlayer = currentPlayer { angle = newAngle, health = updatedHealth, fuel = newFuel }
-    let newTurn = if turn state == 1 then 2 else 1
-    let newState = if turn state == 1
-                   then state { player1 = newPlayer, turn = newTurn }
-                   else state { player2 = newPlayer, turn = newTurn }
-    putStrLn $ "Daño causado: " ++ show dmg
-    return newState
 
-displayGameState :: GameState -> IO ()
-displayGameState state = do
-    putStrLn "\nEstado del juego:"
-    putStrLn $ displayPlayer (player1 state) ++ "  ||  " ++ displayPlayer (player2 state)
-    putStrLn $ "Combustible de Jugador 1: " ++ show (fuel (player1 state))
-    putStrLn $ "Combustible de Jugador 2: " ++ show (fuel (player2 state))
-    putStrLn "--------------------------------------------------"
-    drawBattlefield (player1 state) (player2 state)
-    putStrLn "--------------------------------------------------"
+-- Función para dibujar la catapulta con su diseño ASCII multilínea
+drawCatapult :: Player -> [String]
+drawCatapult player =
+    let (x, y) = position player
+        isP1 = isPlayer1 player
+        angle = if isP1 then '/' else '\\'
+        base1 = "|#----#|"
+        base2 = "@@@   @@"
+        top = "    "++[angle]
+    in [top,base1,base2]
 
-displayPlayer :: Player -> String
-displayPlayer player =
-    name player ++ " (HP: " ++ show (health player) ++ ", Ángulo: " ++ show (angle player) ++ ")"
+-- Función para agregar un jugador (catapulta) al screen
+addPlayer :: [String] -> Player -> Int -> Int -> [String]
+addPlayer screen player x y =
+    let catapultLines = drawCatapult player
+        modifyRow row line = take x row ++ line ++ drop (x + length line) row
+        -- Asegura que cada línea de catapultLines se aplique a la fila correcta de screen
+        indexedLines = zip (take (length catapultLines) (drop y screen)) catapultLines
+        modifiedRows = map (uncurry modifyRow) indexedLines
+    in take y screen ++ modifiedRows ++ drop (y + length catapultLines) screen
 
-checkGameOver :: GameState -> Bool
-checkGameOver state = health (player1 state) <= 0 || health (player2 state) <= 0
+-- Función para agregar ambos jugadores al screen
+addPlayers :: [String] -> GameState -> [String]
+addPlayers screen game =
+    let p1 = player1 game
+        p2 = player2 game
+        (x1, y1) = position p1
+        (x2, y2) = position p2
+        screenWithP1 = addPlayer screen p1 x1 y1
+    in addPlayer screenWithP1 p2 x2 y2
 
-calculateDamage :: IO Int
-calculateDamage = do
-    critChance <- randomRIO (1 :: Int, 100)
-    baseDamage <- randomRIO (1 :: Int, 3)
-    return $ if critChance <= 5 then baseDamage + 6 else baseDamage
+-- Modifica una lista en un índice específico usando una función de modificación.
+modifyAt :: Int -> (a -> a) -> [a] -> [a]
+modifyAt idx f xs =
+    let (left, right) = splitAt idx xs
+    in left ++ [f (head right)] ++ tail right
 
-promptAngle :: Int -> IO Int
-promptAngle currentAngle = do
-    putStrLn $ "Ángulo actual: " ++ show currentAngle ++ " grados."
-    putStrLn "Ingrese nuevo ángulo de lanzamiento (entre 0 y 90): "
-    input <- getLine
-    let newAngle = read input
-    return $ max 0 (min 90 newAngle)
+-- Inserta un string en una posición específica dentro de otro string.
+insertAt :: Int -> Char -> String -> String
+insertAt idx ch str =
+    let (left, right) = splitAt idx str
+    in left ++ [ch] ++ right
 
--- Campo de batalla interactivo
-drawBattlefield :: Player -> Player -> IO ()
-drawBattlefield p1 p2 = do
-    putStrLn "                                         "
-    putStrLn "         *              ***              *"
-    putStrLn "         *              ***              *"
-    putStrLn "         *              ***              *"
-    putStrLn "    @-----@            ***          @-----@"
-    putStrLn "                                         "
 
--- Simulación de la trayectoria del proyectil desde el jugador actual hacia el oponente usando física realista
-simulateProjectile :: Int -> Int -> IO ()
-simulateProjectile angle playerTurn = do
-    let velocity = 10  -- Velocidad inicial arbitraria
-    let gravity = 4  -- Gravedad aproximada en la Tierra
-    let radAngle = fromIntegral angle * pi / 180  -- Convertimos el ángulo a radianes
-    let startPosition = if playerTurn == 1 then 5 else 50  -- Posición inicial del proyectil (jugador 1 o 2)
-    let direction = if playerTurn == 1 then 1 else -1      -- Dirección del proyectil
+-- Manejo de input
+handleInput :: Char -> GameState -> IO GameState
+handleInput input game
+    | gameOver game = return game
+    | otherwise = case input of
+        'a' -> moveCatapult (-1)
+        'd' -> moveCatapult 1
+        'w' -> adjustAngle 5
+        's' -> adjustAngle (-5)
+        ' ' -> shootProjectile
+        'q' -> return game { gameOver = True }
+        _ -> return game
+    where
+        currentPlayer = if currentTurn game then player1 game else player2 game
+        moveCatapult dx
+            | fuel currentPlayer < 10 = return game
+            | otherwise = return $ updateCurrentPlayer game $
+                currentPlayer { position = (x + dx, y), fuel = fuel currentPlayer - 10 }
+            where (x, y) = position currentPlayer
+        
+        adjustAngle da
+            | fuel currentPlayer < 5 = return game
+            | otherwise = return $ updateCurrentPlayer game $
+                currentPlayer { angle = max 0 (min 180 (angle currentPlayer + da)),
+                              fuel = fuel currentPlayer - 5 }
 
-    -- Simulamos la trayectoria en incrementos de tiempo
-    mapM_ (simulateStep radAngle velocity gravity startPosition direction) [0.0, 0.2 .. 2.0]
+        shootProjectile = do
+            damage <- randomRIO (1, 3) :: IO Int
+            isCritical <- ((== 1) <$> randomRIO (1 :: Int, 20 :: Int)) :: IO Bool
 
--- Calcula y muestra el proyectil en un paso de tiempo dado
-simulateStep :: Double -> Double -> Double -> Int -> Int -> Double -> IO ()
-simulateStep radAngle velocity gravity startPosition direction t = do
-    let x = startPosition + direction * round (velocity * t * cos radAngle)  -- Posición en X
-    let y = max 0 (round (velocity * t * sin radAngle - 0.5 * gravity * t^2))  -- Posición en Y, asegurando que no sea negativa
-    let projectileLine = replicate y '\n' ++ replicate (max x 0) ' ' ++ "Q"  -- Construimos la cadena del proyectil
-    drawBattlefield (Player "Jugador 1" 30 100 45) (Player "Jugador 2" 30 100 45)
-    putStrLn projectileLine
-    threadDelay 300000  -- Pausa para ver el movimiento
+            let finalDamage = if isCritical then damage * 3 else damage
+            return $ updateGameAfterShot game finalDamage
+
+updateCurrentPlayer :: GameState -> Player -> GameState
+updateCurrentPlayer game newPlayer =
+    if currentTurn game
+        then game { player1 = newPlayer }
+        else game { player2 = newPlayer }
+
+updateGameAfterShot :: GameState -> Int -> GameState
+updateGameAfterShot game damage =
+    let targetPlayer = if currentTurn game then player2 game else player1 game
+        newHp = max 0 (hp targetPlayer - damage)
+        updatedTarget = targetPlayer { hp = newHp }
+        newGame = if currentTurn game
+            then game { player2 = updatedTarget }
+            else game { player1 = updatedTarget }
+    in newGame { currentTurn = not (currentTurn game),
+                 gameOver = newHp <= 0,
+                 player1 = (player1 newGame) { fuel = 100 },
+                 player2 = (player2 newGame) { fuel = 100 } }
+
+-- Main game loop
