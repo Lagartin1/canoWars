@@ -146,7 +146,7 @@ handleInput input game
             where (x, y) = position currentPlayer
         
         adjustAngle da
-            | fuel currentPlayer < 5 = return game
+            | fuel currentPlayer < 2 = return game
             | otherwise = return $ updateCurrentPlayer game $
                 currentPlayer { angle = max 0 (min 180 (angle currentPlayer + da)),
                               fuel = fuel currentPlayer - 5 }
