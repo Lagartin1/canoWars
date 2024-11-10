@@ -3,6 +3,8 @@ import System.Random
 import Control.Monad
 import System.IO
 import System.Console.ANSI
+import Control.Concurrent  -- Importa Control.Concurrent para usar threadDelay
+
 -- Tipos de datos
 data Player = Player {
     hp :: Int,
@@ -18,6 +20,14 @@ data GameState = GameState {
     currentTurn :: Bool,     -- True para P1, False para P2
     gameOver :: Bool
 } deriving (Show)
+
+-- Tipo de dato Projectile
+data Projectile = Projectile {
+    projPosition :: (Int, Int),
+    projVx :: Float,           -- Velocidad en x
+    projVy :: Float            -- Velocidad en y
+} deriving (Show)
+
 
 -- Constantes del juego
 screenWidth :: Int
@@ -49,6 +59,70 @@ initialGameState = GameState {
     currentTurn = True,
     gameOver = False
 }
+
+
+-- Inicializa el proyectil con velocidad calculada según el ángulo del jugador
+initializeProjectile :: Player -> Projectile
+initializeProjectile player =
+    let (x, y) = position player
+        radAngle = fromIntegral (angle player) * pi / 180  -- Ángulo en radianes
+        vx = 5.0 * cos radAngle
+        vy = 5.0 * sin radAngle
+    in Projectile {
+        projPosition = (x, y - 2),
+        projVx = vx,
+        projVy = vy
+    }
+
+-- Constante de gravedad
+gravity :: Float
+gravity = 0.5  -- Ajusta este valor para cambiar la "fuerza" de la gravedad
+
+-- Simula el movimiento del proyectil, aplicando gravedad a `vy`
+simulateProjectile :: Projectile -> GameState -> IO GameState
+simulateProjectile proj game = do
+    let (x, y) = projPosition proj
+        vx = projVx proj
+        vy = projVy proj - gravity          -- Aplica gravedad solo en la velocidad vertical
+        nextX = x + round vx
+        nextY = y - round vy
+        newProj = proj { projPosition = (nextX, nextY), projVy = vy }
+
+    if nextY >= screenHeight - 1 then
+        -- Caso en el que el proyectil alcanza el suelo
+        return $ game { currentTurn = not (currentTurn game) }
+
+    else if nextX == wallPosition then
+        -- Caso en el que el proyectil choca contra la pared
+        return $ game { currentTurn = not (currentTurn game) }
+
+    else if checkHitEnemy newProj game then
+        -- Caso en el que el proyectil impacta al jugador enemigo
+        let damage = 5  -- Daño fijo o calculado
+            updatedGame = updateGameAfterShot game damage
+        in return updatedGame
+
+    else do
+        -- Actualización de pantalla para mostrar la posición del proyectil
+        clearScreen
+        drawGame game
+        setCursorPosition nextY nextX
+        putChar '*'
+        hFlush stdout
+        threadDelay 100000
+        simulateProjectile newProj game
+
+
+-- Comprueba si el proyectil impacta contra la catapulta del enemigo
+checkHitEnemy :: Projectile -> GameState -> Bool
+checkHitEnemy proj game =
+    let (px, py) = projPosition proj
+        targetPlayer = if currentTurn game then player2 game else player1 game
+        (tx, ty) = position targetPlayer
+        catapultShape = drawCatapult targetPlayer
+        targetArea = [(tx + dx, ty + dy) | (dy, line) <- zip [0..] catapultShape, dx <- [0..length line - 1], line !! dx /= ' ']
+    in (px, py) `elem` targetArea
+
 
 -- Dibuja el escenario completo
 drawGame :: GameState -> IO ()
@@ -134,7 +208,10 @@ handleInput input game
         'd' -> moveCatapult 1
         'w' -> adjustAngle 5
         's' -> adjustAngle (-5)
-        ' ' -> shootProjectile
+        ' ' -> do
+            let currentPlayer = if currentTurn game then player1 game else player2 game
+                proj = initializeProjectile currentPlayer
+            simulateProjectile proj game
         'q' -> return game { gameOver = True }
         _ -> return game
     where
@@ -149,14 +226,8 @@ handleInput input game
             | fuel currentPlayer < 2 = return game
             | otherwise = return $ updateCurrentPlayer game $
                 currentPlayer { angle = max 0 (min 180 (angle currentPlayer + da)),
-                              fuel = fuel currentPlayer - 5 }
+                            fuel = fuel currentPlayer - 5 }
 
-        shootProjectile = do
-            damage <- randomRIO (1, 3) :: IO Int
-            isCritical <- ((== 1) <$> randomRIO (1 :: Int, 20 :: Int)) :: IO Bool
-
-            let finalDamage = if isCritical then damage * 3 else damage
-            return $ updateGameAfterShot game finalDamage
 
 updateCurrentPlayer :: GameState -> Player -> GameState
 updateCurrentPlayer game newPlayer =
