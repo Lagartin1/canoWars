@@ -1,5 +1,3 @@
-# Makefile
-
 # Nombre del ejecutable
 TARGET = bin/canowars
 
@@ -13,8 +11,8 @@ SOURCES = $(SRC_DIR)/main.hs $(SRC_DIR)/utils.hs
 # Comando de compilación
 GHC = ghc
 
-# Opciones de compilación (puedes agregar -Wall para mostrar advertencias)
-GHC_FLAGS = -o $(TARGET)
+# Opciones de compilación (añadimos el paquete ansi-terminal)
+GHC_FLAGS = -o $(TARGET) -package ansi-terminal
 
 # Regla principal de compilación
 all: clean $(TARGET)
@@ -29,4 +27,4 @@ $(BIN_DIR):
 
 # Limpiar archivos generados
 clean:
-	rm -f $(BIN_DIR)/* $(SRC_DIR)/*.hi $(SRC_DIR)/+*.o
+	rm -f $(BIN_DIR)/* $(SRC_DIR)/*.hi $(SRC_DIR)/*.o
