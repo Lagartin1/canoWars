@@ -131,7 +131,7 @@ checkWallPass :: Projectile -> GameState -> Bool
 checkWallPass proj game =
     let (px, py) = projPosition proj
         prevX = px - round (projVx proj)  -- La posición x previa del proyectil
-    in py >= (screenHeight - topMargin) && ((prevX < wallPosition && px > wallPosition) || (prevX > wallPosition && px < wallPosition))
+    in py >= topMargin && ((prevX < wallPosition && px > wallPosition) || (prevX > wallPosition && px < wallPosition))
 
 
 -- Comprueba si el proyectil impacta contra la catapulta del enemigo
