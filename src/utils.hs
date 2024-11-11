@@ -78,29 +78,32 @@ initializeProjectile player =
 gravity :: Float
 gravity = 0.5  -- Ajusta este valor para cambiar la "fuerza" de la gravedad
 
--- Simula el movimiento del proyectil, aplicando gravedad a `vy`
 simulateProjectile :: Projectile -> GameState -> IO GameState
 simulateProjectile proj game = do
     let (x, y) = projPosition proj
         vx = projVx proj
-        vy = projVy proj - gravity          -- Aplica gravedad solo en la velocidad vertical
+        vy = projVy proj - gravity
         nextX = x + round vx
         nextY = y - round vy
         newProj = proj { projPosition = (nextX, nextY), projVy = vy }
 
     if nextY >= screenHeight - 1 then
         -- Caso en el que el proyectil alcanza el suelo
-        return $ game { currentTurn = not (currentTurn game) }
+        return $ game { currentTurn = not (currentTurn game), player1 = (player1 game) { fuel = 100 }, player2 = (player2 game) { fuel = 100 } }
 
-    else if nextX == wallPosition then
-        -- Caso en el que el proyectil choca contra la pared
-        return $ game { currentTurn = not (currentTurn game) }
+    else if nextX == wallPosition && nextY > 10 then
+        -- Caso en el que el proyectil impacta directamente la muralla
+        return $ game { currentTurn = not (currentTurn game), player1 = (player1 game) { fuel = 100 }, player2 = (player2 game) { fuel = 100 } }
+
+    else if checkWallPass newProj game then
+        -- Caso en el que el proyectil traspasa la muralla debajo de su altura sin impacto
+        return $ game { currentTurn = not (currentTurn game), player1 = (player1 game) { fuel = 100 }, player2 = (player2 game) { fuel = 100 } }
 
     else if checkHitEnemy newProj game then
         -- Caso en el que el proyectil impacta al jugador enemigo
         let damage = 5  -- Daño fijo o calculado
             updatedGame = updateGameAfterShot game damage
-        in return updatedGame
+        in return $ updatedGame { player1 = (player1 updatedGame) { fuel = 100 }, player2 = (player2 updatedGame) { fuel = 100 } }
 
     else do
         -- Actualización de pantalla para mostrar la posición del proyectil
@@ -111,6 +114,14 @@ simulateProjectile proj game = do
         hFlush stdout
         threadDelay 100000
         simulateProjectile newProj game
+
+-- Verifica si el proyectil pasa de un lado de la muralla al otro sin impactarla, estando por debajo de su altura.
+checkWallPass :: Projectile -> GameState -> Bool
+checkWallPass proj game =
+    let (px, py) = projPosition proj
+        prevX = px - round (projVx proj)  -- La posición x previa del proyectil
+        wallHeight = 10    -- Ajusta la altura de la muralla aquí
+    in py >= wallHeight && ((prevX < wallPosition && px > wallPosition) || (prevX > wallPosition && px < wallPosition))
 
 
 -- Comprueba si el proyectil impacta contra la catapulta del enemigo
@@ -228,7 +239,6 @@ handleInput input game
                 currentPlayer { angle = max 0 (min 180 (angle currentPlayer + da)),
                             fuel = fuel currentPlayer - 5 }
 
-
 updateCurrentPlayer :: GameState -> Player -> GameState
 updateCurrentPlayer game newPlayer =
     if currentTurn game
@@ -244,8 +254,8 @@ updateGameAfterShot game damage =
             then game { player2 = updatedTarget }
             else game { player1 = updatedTarget }
     in newGame { currentTurn = not (currentTurn game),
-                 gameOver = newHp <= 0,
-                 player1 = (player1 newGame) { fuel = 100 },
-                 player2 = (player2 newGame) { fuel = 100 } }
+        gameOver = newHp <= 0,
+        player1 = (player1 newGame) { fuel = 100 },
+        player2 = (player2 newGame) { fuel = 100 } }
 
 -- Main game loop
